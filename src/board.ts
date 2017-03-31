@@ -187,7 +187,7 @@ export class Board {
           });
           self.record({
             event: "addExitSquare",
-            square: square
+            square: neighbors[i]
           });
           self.record({
             event: "addBacktraceSquare",
