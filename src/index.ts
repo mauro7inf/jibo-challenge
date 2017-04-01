@@ -1,9 +1,11 @@
 /// <reference path="../typings/index.d.ts" />
 /// <reference path="./board.ts" />
+/// <reference path="./checker.ts" />
 
 import PIXI = require('pixi.js');
 import {Board} from './board';
-const renderer:PIXI.WebGLRenderer = new PIXI.WebGLRenderer(1280, 720);
+import {Checker} from './checker';
+const renderer:PIXI.WebGLRenderer = new PIXI.WebGLRenderer(1380, 800);
 document.body.appendChild(renderer.view);
 
 // You need to create a root container that will hold the scene you want to draw.
@@ -18,11 +20,19 @@ let sizeLabel = null;
 let sizeText = null;
 let smallerButton = null;
 let largerButton = null;
+let createCheckerButton = null;
+let createCheckerButtonText = null;
+let solveButton = null;
+let solveButtonText = null;
+
+
+let checker = null;
 
 let board = null;
 generateBoard();
 
 function generateBoard() {
+  destroyChecker();
   if (board !== null) {
     board.destroy();
   }
@@ -52,6 +62,7 @@ function presolve() {
     if (presolveAnimation !== null && board.events.length === 0) {
       cancelAnimationFrame(presolveAnimation);
       presolveAnimation = null;
+      createCreateCheckerButton();
     } else {
       presolveAnimation = requestAnimationFrame(animatePresolution);
     }
@@ -61,10 +72,49 @@ function presolve() {
   animatePresolution();
 }
 
+function destroyChecker() {
+  if (checker !== null) {
+    if (solveAnimation !== null) {
+      cancelAnimationFrame(solveAnimation);
+      solveAnimation = null;
+    }
+    checker.destroy();
+    checker = null;
+  }
+}
+
+function createChecker() {
+  destroyChecker();
+  let row = Math.floor(Math.random()*boardSize);
+  let col = Math.floor(Math.random()*boardSize);
+  checker = new Checker(board, row, col, stage);
+  checker.initCheckerRender();
+  createUI();
+  renderer.render(stage);
+}
+
+let solveAnimation = null;
+function solve() {
+  createSolveButton();
+  function animateSolution() {
+    if (checker.done) {
+      cancelAnimationFrame(solveAnimation);
+      solveAnimation = null;
+    } else {
+      solveAnimation = requestAnimationFrame(animateSolution);
+    }
+    checker.update();
+    renderer.render(stage);
+  }
+  animateSolution();
+}
+
 function createUI() {
   createRegenerateButton();
   createPresolveButton();
   createSizeUI();
+  createCreateCheckerButton();
+  createSolveButton();
 }
 
 function createSizeUI() {
@@ -156,7 +206,7 @@ function createRegenerateButton() {
   let button = new PIXI.Graphics();
   button.lineStyle(2, 0x8080FF, 1);
   button.beginFill(0xD0D0D0);
-  button.drawRoundedRect(700, 90, 115, 30, 7);
+  button.drawRoundedRect(700, 90, 155, 30, 7);
   button.endFill();
 
   button.interactive = true;
@@ -171,7 +221,7 @@ function createRegenerateButton() {
   });
 
   let text = new PIXI.Text('Regenerate', style);
-  text.x = 706;
+  text.x = 726;
   text.y = 93;
 
   stage.addChild(text);
@@ -195,7 +245,7 @@ function createPresolveButton() {
   } else {
     button.beginFill(0xD0D0D0);
   }
-  button.drawRoundedRect(700, 130, 115, 30, 7);
+  button.drawRoundedRect(700, 130, 155, 30, 7);
   button.endFill();
 
   if (!board.presolved) {
@@ -212,11 +262,95 @@ function createPresolveButton() {
   });
 
   let text = new PIXI.Text('Presolve', style);
-  text.x = 719;
+  text.x = 739;
   text.y = 133;
 
   stage.addChild(text);
   presolveButtonText = text;
+}
+
+function createCreateCheckerButton() {
+  if (createCheckerButton !== null) {
+    stage.removeChild(createCheckerButton);
+    createCheckerButton = null;
+  }
+  if (createCheckerButtonText !== null) {
+    stage.removeChild(createCheckerButtonText);
+    createCheckerButtonText = null;
+  }
+
+  let button = new PIXI.Graphics();
+  button.lineStyle(2, 0x8080FF, 1);
+  if (board.presolved) {
+    button.beginFill(0xD0D0D0);
+  } else {
+    button.beginFill(0x808080);
+  }
+  button.drawRoundedRect(700, 210, 155, 30, 7);
+  button.endFill();
+
+  if (board.presolved) {
+    button.interactive = true;
+    button.on('mouseup', createChecker);
+  }
+
+  stage.addChild(button);
+  createCheckerButton = button;
+
+  let style = new PIXI.TextStyle({
+    fontSize: 20,
+    fill: 0x202020
+  });
+
+  let text = new PIXI.Text('Create Checker', style);
+  text.x = 707;
+  text.y = 213;
+
+  stage.addChild(text);
+  createCheckerButtonText = text;
+}
+
+function createSolveButton() {
+  if (solveButton !== null) {
+    stage.removeChild(solveButton);
+    solveButton = null;
+  }
+  if (solveButtonText !== null) {
+    stage.removeChild(solveButtonText);
+    solveButtonText = null;
+  }
+
+  let enabled = checker !== null && !checker.started;
+
+  let button = new PIXI.Graphics();
+  button.lineStyle(2, 0x8080FF, 1);
+  if (enabled) {
+    button.beginFill(0xD0D0D0);
+  } else {
+    button.beginFill(0x808080);
+  }
+  button.drawRoundedRect(700, 250, 155, 30, 7);
+  button.endFill();
+
+  if (enabled) {
+    button.interactive = true;
+    button.on('mouseup', solve);
+  }
+
+  stage.addChild(button);
+  solveButton = button;
+
+  let style = new PIXI.TextStyle({
+    fontSize: 20,
+    fill: 0x202020
+  });
+
+  let text = new PIXI.Text('Solve', style);
+  text.x = 752;
+  text.y = 253;
+
+  stage.addChild(text);
+  solveButtonText = text;
 }
 
 /*// Declare a global variable for our sprite so that the animate function can access it.

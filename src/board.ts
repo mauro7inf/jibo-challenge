@@ -14,7 +14,6 @@ export class Board {
   arrows: Direction[];
   exitSquares: boolean[];
   presolved: boolean;
-  nonExitSquareCount: number;
   longestExitPathLength: number;
   // drawing
   stage: PIXI.Container;
@@ -23,13 +22,11 @@ export class Board {
   framesBetweenEvents: number;
   currentRestFrame: number;
   drawingExitSquares: boolean[];
-  drawingNonExits: number;
-  nonExitsText: PIXI.Text;
   drawingBacktraceSquares: boolean[];
   drawingLongestPath: number;
   longestPathText: PIXI.Text;
   TL: {x: number, y: number}; // top left corner (there will be a 1-square buffer around the whole thing)
-  cellWidth: number;
+  cellWidth: number; // since the grid is square, this probably should be just one property
   cellHeight: number;
   w: number; // width
   h: number; // height
@@ -46,8 +43,10 @@ export class Board {
     this.currentEvent = [];
     this.presolved = false;
     this.framesBetweenEvents = 7;
+    if (this.size > 20) {
+      this.framesBetweenEvents = 2; // speed it way up for big boards
+    }
     this.currentRestFrame = 0;
-    this.drawingNonExits = size * size;
     this.drawingLongestPath = 0;
     this.TL = {x: 50, y: 100};
     this.w = 600;
@@ -59,7 +58,6 @@ export class Board {
     this.lineSprites = [];
     this.cellSprites = [];
     this.arrowSprites = [];
-    this.nonExitsText = null;
     this.longestPathText = null;
     for (let i = 0; i < size * size; i++) {
       this.arrows[i] = directions[Math.floor(Math.random()*4)]; // generate board
@@ -130,6 +128,28 @@ export class Board {
     }
   }
 
+  nextCheckerSquareRC(squareRC: {row: number, col: number}) {
+    if (squareRC.row < 0 || squareRC.row >= this.size
+        || squareRC.col < 0 || squareRC.col >= this.size) {
+      return null; // there are no arrows off-board
+    }
+    let square = this.square(squareRC.row, squareRC.col);
+    // we can't just use the "next" method because we may need
+    // to move the checker off the board
+    switch (this.arrows[square]) {
+      case Direction.Up:
+        return {row: squareRC.row - 1, col: squareRC.col};
+      case Direction.Down:
+        return {row: squareRC.row + 1, col: squareRC.col};
+      case Direction.Left:
+        return {row: squareRC.row, col: squareRC.col - 1};
+      case Direction.Right:
+        return {row: squareRC.row, col: squareRC.col + 1};
+      default:
+        return null; // should never happen
+    }
+  }
+
   record(event: Object) { // record an event in this render step
     this.currentEvent.push(event);
   }
@@ -139,30 +159,28 @@ export class Board {
     this.currentEvent = [];
   }
 
-  // Here we're going to compute which squares lead out.
-  // We're only going to presolve one way, but we'll keep
-  // track of it in different ways.  There are two algorithms
-  // that we'll use at the same time, and the visualization
-  // will choose just one to actually display.
+  // In a time-efficient algorithm, the presolving step marks the squares that
+  // lead to an exit.  However, we're going for a space-efficient algorith
+  // instead.  So, while we *are* marking the squares that lead to an exit
+  // (O(n^2) space), we're only using that information for the purposes of the
+  // visualization.  What presolving does instead is as follows:
   //
-  // Here's how this will work.  For the first algorithm, we're going to
-  // presolve the board entirely, which will take O(n^2) in the worst case
-  // and O(n) in the best, with a storage cost of O(n^2).  However, this
-  // cost is entirely up front, so when we put a checker on a random square,
-  // we will know whether it will exit in O(1).
-  // For the second algorithm, we're going to keep track of the longest
-  // path leading out, as well as the number of squares leading out in
-  // general.  This will take O(n^2) but will have O(1) storage.  When we put
-  // a checker on a random square, we'll therefore have an upper limit on
-  // the number of steps it can take before looping, so we can just keep
-  // stepping it and counting until either the checker exits or we know
-  // we've gone long enough to be in a loop.  This will take O(n^2) steps in
-  // the worst case.
+  // It starts around the board, looking for squares with arrows pointing out.
+  // When it finds them, it checks their immediate neighbors for squares that
+  // lead to that square in order to backtrace the path, and it backtraces the
+  // path recursively to find all squares leading to the exit.  Meanwhile, it
+  // counts these exit-leading squares and keeps track of path length, for a
+  // total storage that grows as O(1).
   //
-  // The actual presolving algorithm is as follows: we go around the edge of
-  // the board, looking for arrows pointing out.  When we find one, we simply
-  // follow the path backwards, either marking squares or counting them (well,
-  // actually, we'll do both, but we'll only visualize one at a time).
+  // When the checker is eventually placed on the board, we know that if it has
+  // not exited by the time it has taken as many steps as the longest leading
+  // path, or if it has taken more paths than there are non-exit-leading
+  // squares on the board, it will never reach an exit.
+  //
+  // Instead of waiting for animation frames, the presolving algorithm records
+  // animatable actions, which are played back later by the renderer at human
+  // speeds.  Doing this directly would be a nightmare, especially for the
+  // recursive bit.
   presolve() {
     let self = this;
     if (this.presolved) {
@@ -181,10 +199,6 @@ export class Board {
         if (neighbors[i] !== null && self.next(neighbors[i]) === square) {
           exits++;
           self.exitSquares[neighbors[i]] = true;
-          self.record({
-            event: "updateNonExits",
-            value: self.size * self.size - exits
-          });
           self.record({
             event: "addExitSquare",
             square: neighbors[i]
@@ -223,10 +237,6 @@ export class Board {
           exits++;
           this.exitSquares[targetSquares[j]] = true;
           this.record({
-            event: "updateNonExits",
-            value: this.size * this.size - exits
-          });
-          this.record({
             event: "addExitSquare",
             square: targetSquares[j]
           });
@@ -253,16 +263,11 @@ export class Board {
     }
 
     this.longestExitPathLength = longestPath;
-    this.nonExitSquareCount = this.size*this.size - exits;
     this.presolved = true;
   }
 
   processRenderEvent(event: any) {
     switch (event.event) {
-      case "updateNonExits":
-        this.drawingNonExits = event.value;
-        this.createStatsText();
-        break;
       case "updateLongestPath":
         this.drawingLongestPath = event.value;
         this.createStatsText();
@@ -306,15 +311,7 @@ export class Board {
   }
 
   clearStatsText() {
-    this.clearNonExitsText();
     this.clearLongestPathText();
-  }
-
-  clearNonExitsText() {
-    if (this.nonExitsText !== null) {
-      this.stage.removeChild(this.nonExitsText);
-      this.nonExitsText = null;
-    }
   }
 
   clearLongestPathText() {
@@ -330,11 +327,6 @@ export class Board {
       fontSize: 30,
       fill: 0xD0D0D0
     });
-
-    this.nonExitsText = new PIXI.Text('Non-Exit Squares: ' + this.drawingNonExits, style);
-    this.nonExitsText.x = 50;
-    this.nonExitsText.y = 5;
-    this.stage.addChild(this.nonExitsText);
 
     this.longestPathText = new PIXI.Text('Longest Path Length: ' + this.drawingLongestPath, style);
     this.longestPathText.x = 50;
@@ -419,45 +411,52 @@ export class Board {
   }
 
   createArrowSprite(square: number) {
-    let r = this.row(square);
-    let c = this.col(square);
-    let xCenter = this.TL.x + this.cellWidth*(c + 1.5);
-    let yCenter = this.TL.y + this.cellHeight*(r + 1.5);
+    let center = this.centerOfSquare({
+      row: this.row(square),
+      col: this.col(square)
+    });
     const k = Math.sqrt(3)/8; // useful geometric constant
     let arrow = new PIXI.Graphics();
     arrow.beginFill(0x808080);
     switch (this.arrows[square]) {
         case Direction.Up:
           arrow.drawPolygon([
-            xCenter, yCenter - this.cellHeight*0.375,
-            xCenter + k*this.cellWidth, yCenter,
-            xCenter - k*this.cellWidth, yCenter
+            center.x, center.y - this.cellHeight*0.375,
+            center.x + k*this.cellWidth, center.y,
+            center.x - k*this.cellWidth, center.y
           ]);
           break;
         case Direction.Down:
           arrow.drawPolygon([
-            xCenter, yCenter + this.cellHeight*0.375,
-            xCenter - k*this.cellWidth, yCenter,
-            xCenter + k*this.cellWidth, yCenter
+            center.x, center.y + this.cellHeight*0.375,
+            center.x - k*this.cellWidth, center.y,
+            center.x + k*this.cellWidth, center.y
           ]);
           break;
         case Direction.Left:
           arrow.drawPolygon([
-            xCenter - this.cellHeight*0.375, yCenter,
-            xCenter, yCenter - k*this.cellHeight,
-            xCenter, yCenter + k*this.cellHeight
+            center.x - this.cellHeight*0.375, center.y,
+            center.x, center.y - k*this.cellHeight,
+            center.x, center.y + k*this.cellHeight
           ]);
           break;
         case Direction.Right:
           arrow.drawPolygon([
-            xCenter + this.cellHeight*0.375, yCenter,
-            xCenter, yCenter + k*this.cellHeight,
-            xCenter, yCenter - k*this.cellHeight
+            center.x + this.cellHeight*0.375, center.y,
+            center.x, center.y + k*this.cellHeight,
+            center.x, center.y - k*this.cellHeight
           ]);
           break;
     }
     arrow.endFill();
     this.stage.addChild(arrow);
     this.arrowSprites[square] = arrow;
+  }
+
+  centerOfSquare(squareRC: {row: number, col: number}) {
+    return {
+      x: this.TL.x + this.cellWidth*(squareRC.col + 1.5),
+      y: this.TL.y + this.cellHeight*(squareRC.row + 1.5)
+    }
   }
 }
