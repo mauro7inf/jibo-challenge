@@ -1,4 +1,8 @@
 /// <reference path="../typings/index.d.ts" />
+/// <reference path="./tone.ts" />
+
+import {Tone} from './tone';
+const C4 = 256; // dem numerologists be crazy, but I'm using A 432 anyway
 
 enum Direction {
   Up = 0,
@@ -287,6 +291,18 @@ export class Board {
     }
   }
 
+  playSound() {
+    // ranndom beeps, because why not
+    let frequency = 2*(2/(Math.random() + 1))*C4; // random note between C5 and C6
+    // Actually not quite a random note -- we're choosing the note in a weird
+    // way.  Think of a string that makes a C4 sound.  Now, find the midpoint.
+    // We're picking random spots on the string on one side of the midpoint
+    // and plucking on the other side.  It's still random, just... weird.
+    let duration = (this.framesBetweenEvents/60)*500; // assuming 60 fps
+    let tone = new Tone(frequency, duration, 0.1);
+    tone.play();
+  }
+
   stepPresolutionAnimation() {
     if (this.events.length > 0 && this.currentRestFrame <= 0) {
       let renderEvents = this.events.shift();
@@ -294,6 +310,7 @@ export class Board {
         this.processRenderEvent(renderEvents[i]);
       }
       this.currentRestFrame += this.framesBetweenEvents;
+      this.playSound();
     } else if (this.currentRestFrame > 0) {
       this.currentRestFrame--;
     }

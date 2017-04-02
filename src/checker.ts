@@ -1,7 +1,10 @@
 /// <reference path="../typings/index.d.ts" />
 /// <reference path="./board.ts" />
+/// <reference path="./tone.ts" />
 
 import {Board} from './board';
+import {Tone} from './tone';
+const C4 = 256; // dem numerologists be crazy, but I'm using A 432 anyway
 
 export class Checker {
   board: Board;
@@ -172,6 +175,7 @@ export class Checker {
       this.stepsTaken++;
       this.calculateOnBoard();
       this.createStepsText();
+      this.playSound();
       if (!this.onBoard) {
         this.done = true; // exit condition
         this.createDoneText('Exited')
@@ -195,5 +199,15 @@ export class Checker {
         this.currentFrame = 0;
       }
     }
+  }
+
+  playSound() {
+    let duration = (this.movementFrames/60)*300; // assuming 60 fps
+    let frequency = C4*((2*this.board.longestExitPathLength - 2)/
+      (this.board.longestExitPathLength + this.stepsTaken - 2));
+    let tone1 = new Tone(frequency, duration, 0.09);
+    tone1.play();
+    let tone2 = new Tone(frequency/2, duration, 0.03);
+    tone2.play();
   }
 }
